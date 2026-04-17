@@ -1,0 +1,537 @@
+{
+  "name": "Vimeo to SF KB Article",
+  "nodes": [
+    {
+      "parameters": {
+        "amount": 2,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        0
+      ],
+      "id": "32ac57b5-5b59-416b-9b38-e08194d73e51",
+      "name": "Wait for 2 mint",
+      "webhookId": "b60d8786-4c01-4350-a7be-7fa16412fef3"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nlet transcript = [];\nfor (const item of $input.all()) {\n  const data = item.json.data;\n  transcript.push(data)\n}\nlet currentItem = $(\"Loop Over Items\").all();\nconsole.log(\"Current Item \", currentItem);\ncurrentItem[0].json.transcript = transcript;\nconst urlName = currentItem[0].json.uri.replaceAll('/','-')\ncurrentItem[0].json.urlName = urlName.replace('-','')\nlet kbSummary = currentItem[0].json.description ? currentItem[0].json.description : \"\";\nkbSummary = kbSummary + \" \" + transcript[0]\ncurrentItem[0].json.kbSummary = kbSummary.slice(0,998)\nreturn currentItem[0];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        224
+      ],
+      "id": "a3408dcc-583a-4541-8914-417c87f9b71e",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.happyscribe.com/api/v1/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer token"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"transcription\": {\n    \"name\": \"{{ $json.name }}-{{ $json.uri }} \",\n    \"language\": \"en-GB\",\n    \"tmp_url\": \"{{ $json.player_embed_url }}\",\n    \"is_subtitle\": false,\n    \"organization_id\": \"16193953\"\n  }\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        736,
+        0
+      ],
+      "id": "ac1be95e-fae4-4f44-b74f-559a49033338",
+      "name": "Upload Video"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.happyscribe.com/api/v1/transcriptions/{{ $json.transcription_ids[0] }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer token"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        784,
+        224
+      ],
+      "id": "dd6e3f07-2abd-4a2a-b8ff-52629fc5ff5b",
+      "name": "Get particular transcipt Video URL"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json._links.self.downloadUrl }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        944,
+        224
+      ],
+      "id": "eaa52b66-e34c-4068-93ac-f155381d13bf",
+      "name": "Get Transcript"
+    },
+    {
+      "parameters": {
+        "content": "## Create KB article for Vimeo Recods\n**Use vimeo Record to Create KB Article** ",
+        "height": 608,
+        "width": 352,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1424,
+        -144
+      ],
+      "typeVersion": 1,
+      "id": "90d4fe3e-6aa1-4ef6-bbe6-17bb9c7b9126",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Check Records and get The video Transcript\n**Use for Loop** to fetch all video transcipt. ",
+        "height": 624,
+        "width": 1136,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        256,
+        -128
+      ],
+      "typeVersion": 1,
+      "id": "c09db9ed-5b15-487d-8af7-314100f234cb",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Get All Video and Converted to readable JSON\nApi Video Link to get the all videos(https://api.vimeo.com/me/videos)",
+        "height": 384,
+        "width": 592
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -384,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "be50fb27-82c3-4245-91f0-84983f8de2f6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "resource": "customObject",
+        "customObject": "Knowledge__kav",
+        "customFieldsUi": {
+          "customFieldsValues": [
+            {
+              "fieldId": "Summary",
+              "value": "={{ $json.description }}"
+            },
+            {
+              "fieldId": "Title",
+              "value": "={{ $json.name }}"
+            },
+            {
+              "fieldId": "UrlName",
+              "value": "={{ $json.urlName }}"
+            },
+            {
+              "fieldId": "body__c",
+              "value": "={{ $json.transcript[0] }}"
+            }
+          ]
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.salesforce",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        0
+      ],
+      "id": "a25002aa-69a3-44cf-9ed0-58626ff04608",
+      "name": "Create Knowledge article",
+      "credentials": {
+        "salesforceOAuth2Api": {
+          "id": "NGhtlHaO9adI4IPD",
+          "name": "Salesforce account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b2f14e58-7eb0-48bb-bd94-933e6cbc4228",
+              "leftValue": "={{ $json.total }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        272,
+        144
+      ],
+      "id": "d55f8735-e527-4597-9a07-7a9bef3b506d",
+      "name": "Check Video Count"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nlet obj = {}\nfor (const item of $input.all()) {\n if(item.json && item.json.data){\n   let data = item.json.data\n   data = JSON.parse(data)\n   obj = data\n   \n }\n}\nreturn obj;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        48,
+        144
+      ],
+      "id": "eaedf6b4-df59-484d-b78d-0e541fe9e305",
+      "name": "Parse All Video to JSON",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "url": "https://api.vimeo.com/me/videos",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer token"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -160,
+        144
+      ],
+      "id": "9484e757-bfac-492c-b6bd-6bfdd90accd5",
+      "name": "Get All Video",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        544,
+        -16
+      ],
+      "id": "077b3186-6faf-4cd9-8ce5-c67a312085db",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        384,
+        -16
+      ],
+      "id": "c1bb466e-582a-4c23-90fd-16b694d12b29",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1840,
+        80
+      ],
+      "id": "545bfc6a-28f0-4996-b8d5-43b449c38e3e",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        144
+      ],
+      "id": "cadeaee6-5f38-4ca4-b57c-2b10c2b88000",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "amount": 1,
+        "unit": "minutes"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        624,
+        224
+      ],
+      "id": "6cfe7275-6f23-4a16-8997-0093b6f5b065",
+      "name": "Wait for 1 mint",
+      "webhookId": "f57c91e2-0ce9-4757-9d8b-e0294dda88d4"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://www.happyscribe.com/api/v1/exports",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer token"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"export\": {\n    \"format\": \"txt\",\n    \"transcription_ids\": [\n      \"{{ $json.id }}\"\n    ]\n  }\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1056,
+        0
+      ],
+      "id": "898a150c-7a39-461a-98e2-c85db1637d31",
+      "name": "Export the transcript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Wait for 2 mint": {
+      "main": [
+        [
+          {
+            "node": "Export the transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload Video": {
+      "main": [
+        [
+          {
+            "node": "Wait for 2 mint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get particular transcipt Video URL": {
+      "main": [
+        [
+          {
+            "node": "Get Transcript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Transcript": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Video Count": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse All Video to JSON": {
+      "main": [
+        [
+          {
+            "node": "Check Video Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Video": {
+      "main": [
+        [
+          {
+            "node": "Parse All Video to JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Create Knowledge article",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Upload Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Knowledge article": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get All Video",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for 1 mint": {
+      "main": [
+        [
+          {
+            "node": "Get particular transcipt Video URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Export the transcript": {
+      "main": [
+        [
+          {
+            "node": "Wait for 1 mint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "6d671b1e-44f7-4c57-93d1-cef0ca4e9fc5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "df84aabde100aa05593387178bc610115413e5c8d1c284452547dcf1bf949649"
+  },
+  "id": "E83dEoTTQzHCOrJ6",
+  "tags": []
+}

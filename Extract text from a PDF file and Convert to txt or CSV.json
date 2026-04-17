@@ -1,0 +1,435 @@
+{
+  "name": "Extract text from a PDF file and Convert to txt or CSV",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "PDF Upload & Conversion",
+        "formDescription": "Upload a PDF file to extract text and convert to TXT/CSV formats",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Upload PDF File",
+              "fieldType": "file",
+              "acceptFileTypes": "pdf",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Output Format",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Text (.txt)"
+                  },
+                  {
+                    "option": "CSV (.csv)"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false,
+          "respondWithOptions": {
+            "values": {}
+          }
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -160,
+        336
+      ],
+      "id": "df6c7976-a587-472e-9145-210e10ce13fa",
+      "name": "Form Trigger1",
+      "webhookId": "76b3fb4e-a40d-4712-b901-e498ec68954b"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        512,
+        432
+      ],
+      "id": "07aa649a-40cc-4e2c-9977-eae0e7b7f074",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "jsCode": "// File Validation with Enhanced Error Handling\nconst items = $input.all();\nconst validatedItems = [];\n\nfor (const item of items) {\n  try {\n    console.log(item)\n    const binary = item.binary;\n    \n    // Check if file exists\n    if (!binary || !binary['Upload_PDF_File']) {\n      throw new Error('No file uploaded. Please select a PDF file.');\n    }\n    \n    const file = binary['Upload_PDF_File'];\n    \n    // Validate MIME type\n    const validTypes = ['application/pdf'];\n    if (!validTypes.includes(file.mimeType)) {\n      throw new Error(`Invalid file type: ${file.mimeType}. Only PDF files are accepted.`);\n    }\n    \n    // Validate file size (max 50MB)\n    const maxSize = 50 * 1024 * 1024;\n    const fileSize = Buffer.byteLength(file.data, 'base64');\n    \n    if (fileSize > maxSize) {\n      const sizeMB = (fileSize / 1024 / 1024).toFixed(2);\n      throw new Error(`File too large: ${sizeMB} MB. Maximum allowed size is 50MB.`);\n    }\n    // Validate file is not empty\n    if (fileSize <= 0) {\n      throw new Error('File appears to be empty or corrupted.');\n    }\n    \n    // Add metadata\n    item.json.fileSize = fileSize;\n    item.json.fileSizeMB = (fileSize / 1024 / 1024).toFixed(2);\n    item.json.fileName = file.fileName || 'uploaded.pdf';\n    item.json.uploadTime = new Date().toISOString();\n    item.json.validationStatus = 'passed';\n    item.json.outputFormat = item.json['Output Format'] || 'Both (TXT + CSV)';\n    \n    // Normalize binary data field name\n    item.binary.data = file;\n    item.json.success= true;\n    \n    validatedItems.push(item);\n    \n  } catch (error) {\n    // Return error in standardized format\n    console.log(error)\n    return [{\n      json: {\n        success: false,\n        error: error.message,\n        validationStatus: 'failed',\n        timestamp: new Date().toISOString()\n      }\n    }];\n  }\n}\n\nreturn validatedItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        336
+      ],
+      "id": "96699e69-d1f7-41dc-808a-e6792efaf3ff",
+      "name": "File Validation"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        240
+      ],
+      "id": "19aad25d-764a-4ac9-9c7a-53d0bb22a5bf",
+      "name": "Extract from PDF"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst output = [];\n\nfunction parseTextWithTable(text) {\n  const lines = text\n    .split(\"\\n\")\n    .map(l => l.trim())\n    .filter(Boolean);\n\n  const headerKeywords = [\n    \"GPO\",\n    \"Product\",\n    \"Vendor\",\n    \"Category\",\n    \"Sub-Category\",\n    \"Price\",\n    \"Quantity\",\n    \"Discount\",\n    \"Admin Fees\",\n    \"Expiration\",\n    \"Contract Name\",\n    \"Contract Type\"\n  ];\n\n  let tableStartIndex = lines.findIndex(line =>\n    headerKeywords.some(h => line.includes(h))\n  );\n\n  if (tableStartIndex === -1) {\n    return {\n      tableFound: false,\n      readableText: text,\n      tableData: []\n    };\n  }\n\n  // Skip header rows (usually 2–4 lines)\n  const readableText = lines.slice(0, tableStartIndex).join(\"\\n\");\n  const tableLines = lines.slice(tableStartIndex + 3);\n\n  const tableData = [];\n  let row = {};\n\n  for (const line of tableLines) {\n    if (/^\\d{4}-\\d{2}-\\d{2}$/.test(line)) {\n      row.Expiration = line;\n      continue;\n    }\n\n    if (/Contract/i.test(line)) {\n      row.ContractName = line;\n      continue;\n    }\n\n    if (/^(National|Regional)$/i.test(line)) {\n      row.ContractType = line;\n\n      // Row complete → push\n      if (Object.keys(row).length > 5) {\n        tableData.push(row);\n      }\n      row = {};\n      continue;\n    }\n\n    if (!row.GPO) row.GPO = line;\n    else if (!row.Product) row.Product = line;\n    else if (!row.Vendor) row.Vendor = line;\n    else if (!row.Category) row.Category = line;\n    else if (!row.SubCategory) row.SubCategory = line;\n    else if (!row.Price && !isNaN(line)) row.Price = Number(line);\n    else if (!row.Quantity && !isNaN(line)) row.Quantity = Number(line);\n    else if (!row.DiscountPercent && !isNaN(line)) row.DiscountPercent = Number(line);\n    else if (!row.AdminFeesPercent && !isNaN(line)) row.AdminFeesPercent = Number(line);\n  }\n\n  return {\n    tableFound: true,\n    readableText,\n    tableData\n  };\n}\n\nfor (const item of items) {\n  const text = item.json?.repairedText;\n\n  if (!text) {\n    output.push({\n      json: { success: false, message: \"No repairedText found\" }\n    });\n    continue;\n  }\n  const respData = parseTextWithTable(text)\n  output.push({\n  json: {\n    success: true,\n    outputFormat: $('File Validation').first().json.outputFormat,\n    readableText : respData.readableText,\n    tableData : respData.tableData,\n    tableFound : respData.tableFound,\n    cleanedText: text,    // 👈 ADD THIS\n  }\n});\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        240
+      ],
+      "id": "144da7cd-d550-41f2-bc98-8d528ed9550a",
+      "name": "Convert data to JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst output = [];\n\nfunction repairOCRText(rawText) {\n  let text = rawText;\n\n  text = text.replace(/([A-Za-z])\\n([a-z])/g, \"$1$2\");\n  text = text.replace(/-\\n/g, \"\");\n\n  text = text.replace(/(\\d+)\\n\\.(\\d)\\n(\\d+)/g, \"$1.$2$3\");\n  text = text.replace(/(\\d+)\\n(\\d{1,3})(?!\\.)/g, \"$1$2\");\n  text = text.replace(/(\\d+)\\n\\.(\\d+)/g, \"$1.$2\");\n\n  text = text.replace(/(\\d{3})\\n(\\d{1})-(\\d{2})\\n-(\\d{2})/g, \"$1$2-$3-$4\");\n\n  text = text.replace(/Natio\\nnal/g, \"National\");\n  text = text.replace(/Regio\\nnal/g, \"Regional\");\n\n  const headerFixes = {\n    \"Pro\\nduct\": \"Product\",\n    \"Sub-c\\natego\\nry\": \"Sub-Category\",\n    \"Categor\\ny\": \"Category\",\n    \"Qu\\nant\\nity\": \"Quantity\",\n    \"Pri\\nce\": \"Price\",\n    \"Disc\\nount\": \"Discount\",\n    \"Admin\\nFees\": \"Admin Fees\",\n    \"Expi\\nratio\\nn\": \"Expiration\",\n    \"Contr\\nact\\nType\": \"Contract Type\"\n  };\n\n  for (const broken in headerFixes) {\n    text = text.replace(new RegExp(broken, \"g\"), headerFixes[broken]);\n  }\n\n  return text.replace(/\\n{2,}/g, \"\\n\").trim();\n}\n\nfor (const item of items) {\n  const rawText = item.json?.text;\n\n  if (!rawText) {\n    output.push({ json: { error: \"No text found\" } });\n    continue;\n  }\n  \n\n  output.push({\n    json: {\n      repairedText: repairOCRText(rawText),\n      \n    }\n  });\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        736,
+        240
+      ],
+      "id": "10c14906-198a-46bf-b9af-2d26ac6b8fdb",
+      "name": "Repair OCR Content"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Text (.txt)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "bb224af5-bc94-4a79-9ddb-cc380cae1874"
+                  },
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Both (TXT + CSV)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "bbbcfa3b-ae10-4bb9-b072-64e1a0c95d64"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Generate TXT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "CSV (.csv)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "2a30fd3f-3e6b-4116-b23a-44655c1c6b6c"
+                  },
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Both (TXT + CSV)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "86d3f8af-88a2-48c6-90d4-e914542ad421"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1184,
+        240
+      ],
+      "id": "44086ee0-45d3-4db5-b67f-11f4b2765948",
+      "name": "Route by Output Format1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const text = item.json?.cleanedText || '';\n\n  if (!text) {\n    item.json.txtError = 'No readableText available';\n    results.push(item);\n    continue;\n  }\n\n  const filename = $('File Validation').first().json.fileName;\n\n  const header = \n`========================================\nExtracted from: ${filename}\nExtraction Date: ${new Date().toISOString()}\n========================================\n\n`;\n\n  const fullText = header + text;\n\n  const txtBuffer = Buffer.from(fullText, 'utf-8');\n\n  item.binary = item.binary || {};\n  item.binary.txtFile = {\n    data: txtBuffer.toString('base64'),\n    mimeType: 'text/plain',\n    fileName: filename.replace('.pdf', '') + '_extracted.txt',\n    fileExtension: 'txt',\n    fileSize: txtBuffer.length\n  };\n\n  item.json.txtCreated = true;\n  results.push(item);\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        144
+      ],
+      "id": "d7e6f7cc-a1fc-4b4a-96d2-3b6919744441",
+      "name": "Create TXT File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfunction tableDataToCSV(tableData) {\n  if (!tableData.length) return '';\n\n  const headers = Object.keys(tableData[0]);\n  const csvRows = [];\n\n  csvRows.push(headers.join(','));\n\n  for (const row of tableData) {\n    const values = headers.map(h => {\n      const value = row[h] ?? '';\n      const escaped = String(value).replace(/\"/g, '\"\"');\n      return `\"${escaped}\"`;\n    });\n    csvRows.push(values.join(','));\n  }\n\n  return csvRows.join('\\n');\n}\n\nfunction textToSingleColumnCSV(text) {\n  const lines = text.split('\\n').filter(Boolean);\n  const csv = ['LineNumber,Content'];\n\n  lines.forEach((line, i) => {\n    csv.push(`${i + 1},\"${line.replace(/\"/g, '\"\"')}\"`);\n  });\n\n  return csv.join('\\n');\n}\n\nfor (const item of items) {\n  const tableData = item.json?.tableData || [];\n  const readableText = item.json?.readableText || '';\n\n  let csvContent = '';\n  let method = '';\n\n  if (tableData.length > 0) {\n    csvContent = tableDataToCSV(tableData);\n    method = 'structured-table';\n  } else {\n    csvContent = textToSingleColumnCSV(readableText);\n    method = 'text-fallback';\n  }\n\n  const csvBuffer = Buffer.from(csvContent, 'utf-8');\n  const filename = $('File Validation').first().json.fileName;\n\n  item.binary = item.binary || {};\n  item.binary.csvFile = {\n    data: csvBuffer.toString('base64'),\n    mimeType: 'text/csv',\n    fileName: filename.replace('.pdf', '') + '_extracted.csv',\n    fileExtension: 'csv',\n    fileSize: csvBuffer.length\n  };\n\n  item.json.csvCreated = true;\n  item.json.csvConversionMethod = method;\n  item.json.csvRowCount = csvContent.split('\\n').length;\n\n  results.push(item);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1632,
+        240
+      ],
+      "id": "c2c62df2-6d2b-4a13-87e6-5af65c0eddb5",
+      "name": "Create CSV File"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1632,
+        432
+      ],
+      "id": "a6c3645a-09b2-4dfc-9aa6-77df37bfca44",
+      "name": "No Operation, Do Nothing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "10c07fb3-038d-4ce1-8c5c-d7689473d0ec",
+              "leftValue": "={{ $json.tableFound }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1408,
+        336
+      ],
+      "id": "3264c114-210a-48d8-827c-af6fc75cc65a",
+      "name": "Check If Table found"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "99359021-f576-4bb6-b0ef-db8d002f44c8",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        288,
+        336
+      ],
+      "id": "2feaecf7-3721-4742-9b48-3bb3ed065ca5",
+      "name": "Check if PDF has Content"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Form Trigger1": {
+      "main": [
+        [
+          {
+            "node": "File Validation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Validation": {
+      "main": [
+        [
+          {
+            "node": "Check if PDF has Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from PDF": {
+      "main": [
+        [
+          {
+            "node": "Repair OCR Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Repair OCR Content": {
+      "main": [
+        [
+          {
+            "node": "Convert data to JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert data to JSON": {
+      "main": [
+        [
+          {
+            "node": "Route by Output Format1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Output Format1": {
+      "main": [
+        [
+          {
+            "node": "Create TXT File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check If Table found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create TXT File": {
+      "main": [
+        []
+      ]
+    },
+    "Create CSV File": {
+      "main": [
+        []
+      ]
+    },
+    "Check If Table found": {
+      "main": [
+        [
+          {
+            "node": "Create CSV File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, Do Nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if PDF has Content": {
+      "main": [
+        [
+          {
+            "node": "Extract from PDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "e7c86c39-c857-4c1f-ba15-7ac4cccbf4e8",
+  "meta": {
+    "templateId": "585",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "df84aabde100aa05593387178bc610115413e5c8d1c284452547dcf1bf949649"
+  },
+  "id": "21RyJFbGe8qkZs1su5AzG",
+  "tags": []
+}

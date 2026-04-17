@@ -1,0 +1,432 @@
+{
+  "name": "Monday task to Convert  document",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2320,
+        64
+      ],
+      "id": "5dea45e5-c8da-40b0-a583-1ce869b4060c",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "boardId": "2055370388"
+      },
+      "type": "n8n-nodes-base.mondayCom",
+      "typeVersion": 1,
+      "position": [
+        -2096,
+        64
+      ],
+      "id": "7389eb0a-04ac-4523-a5f9-cba59ff045e1",
+      "name": "Get a board",
+      "credentials": {
+        "mondayComApi": {
+          "id": "gIk1KlJk607IlpxH",
+          "name": "Monday.com account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "boardItem",
+        "operation": "getAll",
+        "boardId": "={{ $json.BoardID }}",
+        "groupId": "={{ $json.id }}",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.mondayCom",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        64
+      ],
+      "id": "83e84abc-7578-4cf3-b15e-e4062917bdec",
+      "name": "Get many items",
+      "credentials": {
+        "mondayComApi": {
+          "id": "gIk1KlJk607IlpxH",
+          "name": "Monday.com account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.monday.com/v2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer token"
+            },
+            {
+              "name": "Content-Type",
+              "value": "=application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={   \n\"query\": \"query { items(ids:{{ $json.id }}) { name updates { id text_body assets { id name public_url url } } } }\" \n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -176,
+        -208
+      ],
+      "id": "78844310-b478-455b-bad8-05424502cbc3",
+      "name": "Get Update"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nconst obj = $('Iterate the Board group').item.json;\nconst task=[]\nfor (const item of $input.all()) {\n    task.push(item.json);\n}\nobj['boardTasks'] = task;\n\nreturn obj;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1024,
+        64
+      ],
+      "id": "27e6ec48-5c51-4eba-9663-699ac0cb0ca3",
+      "name": "Push code to Board Item"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "boardGroup",
+        "operation": "getAll",
+        "boardId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.mondayCom",
+      "typeVersion": 1,
+      "position": [
+        -1872,
+        64
+      ],
+      "id": "c2b1e297-21c7-4f78-95ad-b59c5650cfe6",
+      "name": "Get board groups",
+      "credentials": {
+        "mondayComOAuth2Api": {
+          "id": "cMbnp6Ht9zA2SkFd",
+          "name": "Monday.com account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "319b1d49-13e3-43da-b02c-43f01330d5b0",
+              "name": "BoardID",
+              "value": "={{ $('Get a board').item.json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1648,
+        64
+      ],
+      "id": "2f0533a8-da6c-4c01-9236-c66a978e7421",
+      "name": "Append Board in Board group"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1424,
+        64
+      ],
+      "id": "879dd7ff-7945-449b-8448-c500bb2998eb",
+      "name": "Iterate the Board group"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "boardTasks",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -832,
+        64
+      ],
+      "id": "db73a63d-342c-40bb-b920-dfdb61648bd0",
+      "name": "Split Out task"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -384,
+        -64
+      ],
+      "id": "8360e8f0-6529-4ae8-b44a-6e9be3d0fff4",
+      "name": "Iterate the task"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nconst obj = $('Iterate the task').item.json;\nconst task=[]\nfor (const item of $input.all()) {\n    task.push(item.json);\n}\nobj['task_updates'] = task;\n\nreturn obj;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        -64
+      ],
+      "id": "f677e864-515a-4843-b8b1-d28742d19dc0",
+      "name": "Push code to Task"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nconst obj = $('Iterate the task').item.json;\nconst task=[]\nfor (const item of $input.all()) {\n    task.push(item.json);\n}\nobj['all_task'] = task;\n\nreturn obj;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -656,
+        -192
+      ],
+      "id": "7c367ce9-7c10-4bf3-b292-e7d0232c04ac",
+      "name": "Push update to task "
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  let linkedPulseId = [];\n  let columnValues = item.json.column_values;\n  if(columnValues && columnValues.length){\n    for (const element of columnValues) {\n        if(typeof(element.value) === 'string'){\n          let obj = JSON.parse(element.value)\n          if(obj.linkedPulseIds && obj.linkedPulseIds.length){\n            obj.linkedPulseIds.map(val=>linkedPulseId.push(val.linkedPulseId))\n          }\n        }\n      \n    }\n  }\n  linkedPulseId.push(item.json.id)\n  item.json.linkedPulseId = linkedPulseId;\n  \n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -192
+      ],
+      "id": "e289b983-bc5a-4357-9ebc-30c904d6eb64",
+      "name": "Extract LinkedPulseIds"
+    }
+  ],
+  "pinData": {
+    "Get a board": [
+      {
+        "json": {
+          "id": "2055370388",
+          "name": "Epics",
+          "description": "",
+          "state": "active",
+          "board_folder_id": "6307738",
+          "board_kind": "public",
+          "owners": [
+            {
+              "id": "79605098"
+            }
+          ]
+        }
+      }
+    ],
+    "Append Board in Board group": [
+      {
+        "json": {
+          "id": "group_mktk7txe",
+          "title": "demo Group",
+          "color": "#ff642e",
+          "position": "960.0",
+          "archived": false,
+          "BoardID": "2055370388"
+        }
+      },
+      {
+        "json": {
+          "id": "new_group313",
+          "title": "Q2 2025",
+          "color": "#579bfc",
+          "position": "1920",
+          "archived": false,
+          "BoardID": "2055370388"
+        }
+      },
+      {
+        "json": {
+          "id": "new_group",
+          "title": "Epics Backlog",
+          "color": "#FF642E",
+          "position": "1952",
+          "archived": false,
+          "BoardID": "2055370388"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get a board",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get a board": {
+      "main": [
+        [
+          {
+            "node": "Get board groups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many items": {
+      "main": [
+        [
+          {
+            "node": "Push code to Board Item",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Update": {
+      "main": [
+        [
+          {
+            "node": "Push code to Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push code to Board Item": {
+      "main": [
+        [
+          {
+            "node": "Split Out task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get board groups": {
+      "main": [
+        [
+          {
+            "node": "Append Board in Board group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Board in Board group": {
+      "main": [
+        [
+          {
+            "node": "Iterate the Board group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iterate the Board group": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Get many items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out task": {
+      "main": [
+        [
+          {
+            "node": "Iterate the task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Iterate the task": {
+      "main": [
+        [
+          {
+            "node": "Push update to task ",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Update",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push code to Task": {
+      "main": [
+        [
+          {
+            "node": "Iterate the task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Push update to task ": {
+      "main": [
+        [
+          {
+            "node": "Iterate the Board group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2cb1651a-9a11-4743-852a-4e7308840e5a",
+  "meta": {
+    "instanceId": "df84aabde100aa05593387178bc610115413e5c8d1c284452547dcf1bf949649"
+  },
+  "id": "qA611SHCV0Q5vFnX",
+  "tags": []
+}
