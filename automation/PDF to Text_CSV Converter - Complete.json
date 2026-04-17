@@ -1,0 +1,571 @@
+{
+  "name": "PDF to Text/CSV Converter - Complete",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Normalize Binary Data for Extract from File Node\n// This ensures the binary data is accessible under the 'data' field\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    // Check if binary data exists\n    if (!item.binary) {\n      throw new Error('No binary data found');\n    }\n    \n    // If 'data' field doesn't exist, find the binary field and copy it\n    if (!item.binary.data) {\n      const binaryKeys = Object.keys(item.binary);\n      \n      if (binaryKeys.length > 0) {\n        // Copy the first binary field to 'data'\n        item.binary.data = item.binary[binaryKeys[0]];\n        item.json.binaryFieldNormalized = true;\n        item.json.originalBinaryField = binaryKeys[0];\n      } else {\n        throw new Error('No binary fields available');\n      }\n    } else {\n      item.json.binaryFieldNormalized = false;\n      item.json.note = 'Binary data already in correct field';\n    }\n    \n    results.push(item);\n    \n  } catch (error) {\n    item.json.normalizationError = error.message;\n    item.json.binaryFieldNormalized = false;\n    results.push(item);\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        704
+      ],
+      "id": "a23aa939-88fa-4207-8074-1a94ae715582",
+      "name": "Normalize Binary (Text-based)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Binary Data for Extract from File Node\n// This ensures the binary data is accessible under the 'data' field\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    // Check if binary data exists\n    if (!item.binary) {\n      throw new Error('No binary data found');\n    }\n    \n    // If 'data' field doesn't exist, find the binary field and copy it\n    if (!item.binary.data) {\n      const binaryKeys = Object.keys(item.binary);\n      \n      if (binaryKeys.length > 0) {\n        // Copy the first binary field to 'data'\n        item.binary.data = item.binary[binaryKeys[0]];\n        item.json.binaryFieldNormalized = true;\n        item.json.originalBinaryField = binaryKeys[0];\n      } else {\n        throw new Error('No binary fields available');\n      }\n    } else {\n      item.json.binaryFieldNormalized = false;\n      item.json.note = 'Binary data already in correct field';\n    }\n    \n    results.push(item);\n    \n  } catch (error) {\n    item.json.normalizationError = error.message;\n    item.json.binaryFieldNormalized = false;\n    results.push(item);\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        896
+      ],
+      "id": "b3e9aef6-b72a-404d-b2e8-397b4c9ee7b0",
+      "name": "Normalize Binary (Mixed)"
+    },
+    {
+      "parameters": {
+        "formTitle": "PDF Upload & Conversion",
+        "formDescription": "Upload a PDF file to extract text and convert to TXT/CSV formats",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Upload PDF File",
+              "fieldType": "file",
+              "acceptFileTypes": "pdf",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Output Format",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Text (.txt)"
+                  },
+                  {
+                    "option": "CSV (.csv)"
+                  },
+                  {
+                    "option": "Both (TXT + CSV)"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "respondWith": "allEntries"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        912,
+        896
+      ],
+      "id": "b345a04c-6a56-4937-8e8c-ab8d1645c645",
+      "name": "Form Trigger1",
+      "webhookId": "fc4892d4-b86f-47bf-ba87-589910482936"
+    },
+    {
+      "parameters": {
+        "jsCode": "// File Validation with Enhanced Error Handling\nconst items = $input.all();\nconst validatedItems = [];\n\nfor (const item of items) {\n  try {\n    console.log(item)\n    const binary = item.binary;\n    \n    // Check if file exists\n    if (!binary || !binary['Upload_PDF_File']) {\n      throw new Error('No file uploaded. Please select a PDF file.');\n    }\n    \n    const file = binary['Upload_PDF_File'];\n    \n    // Validate MIME type\n    const validTypes = ['application/pdf'];\n    if (!validTypes.includes(file.mimeType)) {\n      throw new Error(`Invalid file type: ${file.mimeType}. Only PDF files are accepted.`);\n    }\n    \n    // Validate file size (max 50MB)\n    const maxSize = 50 * 1024 * 1024;\n    const fileSize = Buffer.byteLength(file.data, 'base64');\n    \n    if (fileSize > maxSize) {\n      const sizeMB = (fileSize / 1024 / 1024).toFixed(2);\n      throw new Error(`File too large: ${sizeMB} MB. Maximum allowed size is 50MB.`);\n    }\n    // Validate file is not empty\n    if (fileSize <= 0) {\n      throw new Error('File appears to be empty or corrupted.');\n    }\n    \n    // Add metadata\n    item.json.fileSize = fileSize;\n    item.json.fileSizeMB = (fileSize / 1024 / 1024).toFixed(2);\n    item.json.fileName = file.fileName || 'uploaded.pdf';\n    item.json.uploadTime = new Date().toISOString();\n    item.json.validationStatus = 'passed';\n    item.json.outputFormat = item.json['Output Format'] || 'Both (TXT + CSV)';\n    \n    // Normalize binary data field name\n    item.binary.data = file;\n    \n    validatedItems.push(item);\n    \n  } catch (error) {\n    // Return error in standardized format\n    console.log(error)\n    return [{\n      json: {\n        success: false,\n        error: error.message,\n        validationStatus: 'failed',\n        timestamp: new Date().toISOString()\n      }\n    }];\n  }\n}\n\nreturn validatedItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        896
+      ],
+      "id": "920634f6-1fc3-43ad-bf63-f0c4725bde3c",
+      "name": "File Validation1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// PDF Type Detection (Text-based vs Scanned) - FIXED for Binary Data Preservation\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    console.log(item)\n    // CRITICAL FIX: Ensure binary data exists and is accessible\n    if (!item.binary || !item.binary.Upload_PDF_File) {\n      throw new Error('No binary data found in item');\n    }\n    \n    const binary = item.binary.Upload_PDF_File;\n    const pdfBuffer = Buffer.from(binary.data, 'base64');\n    \n    // Convert buffer to string for analysis\n    const pdfString = pdfBuffer.toString('latin1');\n    console.log(pdfString)\n    // Detection heuristics\n    const hasTextContent = (\n      pdfString.includes('/ToUnicode') || \n      pdfString.includes('/Encoding') ||\n      pdfString.includes('/Font') ||\n      (pdfString.match(/\\(.*\\)/g) || []).length > 50\n    );\n    console.log(hasTextContent)\n    \n    const hasImages = (\n      pdfString.includes('/Image') || \n      pdfString.includes('/XObject') ||\n      pdfString.includes('/DCTDecode') ||\n      pdfString.includes('/FlateDecode')\n    );\n    \n    // Count approximate text content\n    const textMatches = pdfString.match(/\\([^)]{10,}\\)/g) || [];\n    const textContentScore = textMatches.length;\n    \n    // Determine PDF type\n    let pdfType = 'text-based';\n    let confidence = 'low';\n    \n    if (textContentScore > 100 && hasTextContent) {\n      pdfType = 'text-based';\n      confidence = 'high';\n    } else if (textContentScore > 20 && hasTextContent) {\n      pdfType = 'mixed';\n      confidence = 'medium';\n    } else if (hasImages) {\n      pdfType = 'scanned';\n      confidence = 'medium';\n    }\n    \n    // Add detection results to item\n    item.json.pdfType = pdfType;\n    item.json.detectionConfidence = confidence;\n    item.json.textContentScore = textContentScore;\n    item.json.hasImages = hasImages;\n    item.json.hasTextContent = hasTextContent;\n    item.json.detectionMethod = 'content-analysis';\n    item.json.detectionTime = new Date().toISOString();\n    \n    // CRITICAL: Preserve binary data by keeping it in the item\n    // The binary.data field is already set by File Validation, just keep it\n    \n    results.push(item);\n    \n  } catch (error) {\n    // Fallback: assume text-based if detection fails\n    item.json.pdfType = 'text-based';\n    item.json.detectionConfidence = 'low';\n    item.json.detectionError = error.message;\n    \n    // CRITICAL: Even on error, preserve binary data if it exists\n    // Don't modify item.binary to avoid losing the data\n    \n    results.push(item);\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        896
+      ],
+      "id": "97d993e0-b20e-40a9-a924-e8ebe4ee32fa",
+      "name": "PDF Type Detection1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "text-based-rule",
+                    "leftValue": "={{ $json.pdfType }}",
+                    "rightValue": "text-based",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Text-Based PDF"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "mixed-rule",
+                    "leftValue": "={{ $json.pdfType }}",
+                    "rightValue": "mixed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Mixed PDF"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "scanned-rule",
+                    "leftValue": "={{ $json.pdfType }}",
+                    "rightValue": "scanned",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Scanned PDF (OCR Needed)"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1584,
+        864
+      ],
+      "id": "bf3762fc-20a3-4fe6-9152-b8b09e3f3b81",
+      "name": "Route by PDF Type1"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2032,
+        704
+      ],
+      "id": "8aa8f07a-bcb2-4db5-8335-6038dd12cd5a",
+      "name": "Extract Text (Direct)1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// OCR Processing Information Node\n// This node provides information about OCR options\n// In production, replace with actual OCR API call\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  item.json.ocrNote = 'Scanned PDF detected. OCR processing required.';\n  item.json.ocrRecommendation = 'Use Google Vision API, Tesseract, or AWS Textract';\n  item.json.ocrStatus = 'not_implemented';\n  \n  // For now, attempt basic extraction (may return empty)\n  item.json.data = '';  // Changed from extractedText to data for consistency\n  item.json.extractedText = '';\n  item.json.requiresOCR = true;\n  \n  // CRITICAL: Preserve binary data for potential future OCR processing\n  // Binary data remains in item.binary.data\n  \n  results.push(item);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        1088
+      ],
+      "id": "18d8f22e-ff53-4a7b-82cf-b78ffb817f8d",
+      "name": "OCR Required (Placeholder)1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Text Cleanup and Processing\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  console.log(item)\n  let text = item.json.data || item.json.extractedText || item.json.text || '';\n  const outputFormat =  $('PDF Type Detection1').first().json.outputFormat;\n  \n  console.log(text)\n    item.json.outputFormat = outputFormat;\n    item.json.fileName = $('File Validation1').first().json.fileName;\n  \n  // Skip if no text extracted\n  if (!text || text.trim().length === 0) {\n    item.json.cleanedText = '';\n    item.json.processingError = 'No text could be extracted from PDF';\n    item.json.wordCount = 0;\n    item.json.characterCount = 0;\n    results.push(item);\n    continue;\n  }\n  \n  // Cleanup operations\n  // 1. Normalize line breaks\n  text = text.replace(/\\r\\n/g, '\\n').replace(/\\r/g, '\\n');\n  \n  // 2. Remove excessive whitespace\n  text = text.replace(/[ \\t]+/g, ' ');\n  \n  // 3. Remove multiple consecutive line breaks (keep max 2)\n  text = text.replace(/\\n{3,}/g, '\\n\\n');\n  \n  // 4. Trim each line\n  text = text.split('\\n').map(line => line.trim()).join('\\n');\n  \n  // 5. Remove zero-width characters\n  text = text.replace(/[\\u200B-\\u200D\\uFEFF]/g, '');\n  \n  // 6. Fix common OCR errors (optional)\n  const ocrCorrections = {\n    '0O': 'OO',  // Zero followed by O\n    'O0': 'O0',  // O followed by zero\n    'l1': 'l1',  // lowercase L and 1\n  };\n  \n  // Calculate statistics\n  const wordCount = text.split(/\\s+/).filter(w => w.length > 0).length;\n  const characterCount = text.length;\n  const lineCount = text.split('\\n').filter(l => l.length > 0).length;\n  \n  // Detect if text contains structured data\n  const hasTabular = /\\t/.test(text) || /\\s{3,}/.test(text);\n  const hasNumberedLists = /^\\d+[\\.\\)]\\s/m.test(text);\n  const hasBulletPoints = /^[•\\-\\*]\\s/m.test(text);\n \n  \n  // Store results\n  item.json.cleanedText = text.trim();\n  item.json.originalText = item.json.data || item.json.extractedText;\n  item.json.wordCount = wordCount;\n  item.json.characterCount = characterCount;\n  item.json.lineCount = lineCount;\n  item.json.hasTabularData = hasTabular;\n  item.json.hasNumberedLists = hasNumberedLists;\n  item.json.hasBulletPoints = hasBulletPoints;\n  item.json.processingStatus = 'success';\n  item.json.processingTime = new Date().toISOString();\n\n  results.push(item);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        800
+      ],
+      "id": "eb716459-6ac9-4793-a895-3e9ee0e8ccf6",
+      "name": "Text Cleanup & Analysis1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Text (.txt)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "bb224af5-bc94-4a79-9ddb-cc380cae1874"
+                  },
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Both (TXT + CSV)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "bbbcfa3b-ae10-4bb9-b072-64e1a0c95d64"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Generate TXT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "CSV (.csv)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "2a30fd3f-3e6b-4116-b23a-44655c1c6b6c"
+                  },
+                  {
+                    "leftValue": "={{ $json.outputFormat }}",
+                    "rightValue": "Both (TXT + CSV)",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "86d3f8af-88a2-48c6-90d4-e914542ad421"
+                  }
+                ],
+                "combinator": "or"
+              },
+              "renameOutput": true,
+              "outputKey": "Generate CSV"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2704,
+        800
+      ],
+      "id": "6ebbc635-9bcc-432f-af87-b7230cebfb8f",
+      "name": "Route by Output Format1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create TXT File\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const text = item.json.cleanedText || '';\n  \n  if (!text) {\n    item.json.txtError = 'No text available to create TXT file';\n    results.push(item);\n    continue;\n  }\n  \n  // Add header information\n  const header = `========================================\nExtracted from: ${item.json.fileName}\nExtraction Date: ${new Date().toISOString()}\nWord Count: ${item.json.wordCount}\nCharacter Count: ${item.json.characterCount}\n========================================\\n\\n`;\n  \n  const fullText = header + text;\n  \n  // Create TXT binary\n  const txtBuffer = Buffer.from(fullText, 'utf-8');\n  const txtBase64 = txtBuffer.toString('base64');\n  \n  const txtFileName = item.json.fileName.replace('.pdf', '') + '_extracted.txt';\n  \n  item.binary.txtFile = {\n    data: txtBase64,\n    mimeType: 'text/plain',\n    fileName: txtFileName,\n    fileExtension: 'txt',\n    fileSize: txtBuffer.length\n  };\n  \n  item.json.txtFileName = txtFileName;\n  item.json.txtFileSize = txtBuffer.length;\n  item.json.txtCreated = true;\n  \n  results.push(item);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2928,
+        704
+      ],
+      "id": "c9d7b669-4480-4ace-9da7-0f1d60b6c2ac",
+      "name": "Create TXT File1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Create CSV File with Table Detection\nconst items = $input.all();\nconst results = [];\n\nfunction detectAndParseTables(text) {\n  const lines = text.split('\\n').filter(line => line.trim());\n  const tables = [];\n  let currentTable = [];\n  let inTable = false;\n  \n  for (let i = 0; i < lines.length; i++) {\n    const line = lines[i];\n    \n    // Heuristics for table detection\n    const hasMultipleSpaces = /\\s{3,}/.test(line);\n    const hasTabs = /\\t/.test(line);\n    const hasMultipleColumns = line.split(/\\t+|\\s{3,}/).length >= 2;\n    \n    // Check if line looks like a table row\n    const isTableRow = (hasMultipleSpaces || hasTabs) && hasMultipleColumns;\n    \n    if (isTableRow) {\n      if (!inTable) {\n        inTable = true;\n        currentTable = [];\n      }\n      currentTable.push(line);\n    } else {\n      // End of table\n      if (inTable && currentTable.length >= 2) {\n        tables.push([...currentTable]);\n      }\n      inTable = false;\n      currentTable = [];\n    }\n  }\n  \n  // Add last table if exists\n  if (currentTable.length >= 2) {\n    tables.push(currentTable);\n  }\n  \n  return tables;\n}\n\nfunction tableToCSV(table) {\n  const csvRows = [];\n  \n  for (const row of table) {\n    // Split by tabs or multiple spaces\n    const columns = row\n      .split(/\\t+|\\s{3,}/)\n      .map(col => col.trim())\n      .filter(col => col.length > 0);\n    \n    // Escape and quote columns\n    const escapedColumns = columns.map(col => {\n      // Escape quotes\n      col = col.replace(/\"/g, '\"\"');\n      \n      // Quote if contains comma, quote, or newline\n      if (col.includes(',') || col.includes('\"') || col.includes('\\n')) {\n        return `\"${col}\"`;\n      }\n      \n      // Quote if starts/ends with space\n      if (col.startsWith(' ') || col.endsWith(' ')) {\n        return `\"${col}\"`;\n      }\n      \n      return col;\n    });\n    \n    csvRows.push(escapedColumns.join(','));\n  }\n  \n  return csvRows.join('\\n');\n}\n\nfunction textToSingleColumnCSV(text) {\n  const lines = text.split('\\n').filter(line => line.trim());\n  \n  const csvLines = ['Line Number,Content'];\n  \n  lines.forEach((line, index) => {\n    const escaped = line.replace(/\"/g, '\"\"');\n    csvLines.push(`${index + 1},\"${escaped}\"`);\n  });\n  \n  return csvLines.join('\\n');\n}\n\nfor (const item of items) {\n  const text = item.json.cleanedText || '';\n  \n  if (!text) {\n    item.json.csvError = 'No text available to create CSV file';\n    results.push(item);\n    continue;\n  }\n  \n  let csvContent = '';\n  let conversionMethod = '';\n  \n  // Try to detect tables\n  const tables = detectAndParseTables(text);\n  \n  if (tables.length > 0) {\n    // Found table(s) - convert first table\n    csvContent = tableToCSV(tables[0]);\n    conversionMethod = 'table-detection';\n    item.json.tablesDetected = tables.length;\n    \n    // If multiple tables, note in metadata\n    if (tables.length > 1) {\n      item.json.additionalTables = tables.length - 1;\n      item.json.note = `${tables.length} tables detected. Only first table converted to CSV.`;\n    }\n  } else {\n    // No tables found - convert to single column CSV\n    csvContent = textToSingleColumnCSV(text);\n    conversionMethod = 'line-by-line';\n    item.json.tablesDetected = 0;\n  }\n  \n  // Create CSV binary\n  const csvBuffer = Buffer.from(csvContent, 'utf-8');\n  const csvBase64 = csvBuffer.toString('base64');\n  console.log(item, item.json)\n  const csvFileName = item.json.fileName.replace('.pdf', '') + '_extracted.csv';\n  \n  item.binary.csvFile = {\n    data: csvBase64,\n    mimeType: 'text/csv',\n    fileName: csvFileName,\n    fileExtension: 'csv',\n    fileSize: csvBuffer.length\n  };\n  \n  item.json.csvFileName = csvFileName;\n  item.json.csvFileSize = csvBuffer.length;\n  item.json.csvCreated = true;\n  item.json.csvConversionMethod = conversionMethod;\n  item.json.csvRowCount = csvContent.split('\\n').length;\n  \n  results.push(item);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2928,
+        896
+      ],
+      "id": "6a1f68a7-a421-4ea3-93fe-69669778dd05",
+      "name": "Create CSV File1"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        3152,
+        800
+      ],
+      "id": "d6fd0835-6199-4b0b-b005-bd76d32bcf9b",
+      "name": "Merge File Outputs1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Final Response with Download Links\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const response = {\n    success: true,\n    message: 'PDF processed successfully',\n    processingDetails: {\n      originalFile: item.json.fileName,\n      fileSize: `${item.json.fileSizeMB} MB`,\n      pdfType: item.json.pdfType,\n      detectionConfidence: item.json.detectionConfidence,\n      uploadTime: item.json.uploadTime,\n      processingTime: item.json.processingTime\n    },\n    extractionStats: {\n      wordCount: item.json.wordCount,\n      characterCount: item.json.characterCount,\n      lineCount: item.json.lineCount,\n      hasTabularData: item.json.hasTabularData\n    },\n    outputFiles: []\n  };\n  \n  // Add TXT file info\n  if (item.json.txtCreated && item.binary.txtFile) {\n    response.outputFiles.push({\n      format: 'TXT',\n      fileName: item.json.txtFileName,\n      fileSize: `${(item.json.txtFileSize / 1024).toFixed(2)} KB`,\n      mimeType: 'text/plain'\n    });\n  }\n  \n  // Add CSV file info\n  if (item.json.csvCreated && item.binary.csvFile) {\n    response.outputFiles.push({\n      format: 'CSV',\n      fileName: item.json.csvFileName,\n      fileSize: `${(item.json.csvFileSize / 1024).toFixed(2)} KB`,\n      mimeType: 'text/csv',\n      conversionMethod: item.json.csvConversionMethod,\n      tablesDetected: item.json.tablesDetected,\n      rowCount: item.json.csvRowCount\n    });\n  }\n  \n  // Add warnings if any\n  if (item.json.requiresOCR) {\n    response.warnings = [\n      'Scanned PDF detected. Text extraction may be incomplete.',\n      'Consider using OCR service for better results.'\n    ];\n  }\n  \n  if (item.json.processingError) {\n    response.warnings = response.warnings || [];\n    response.warnings.push(item.json.processingError);\n  }\n  \n  // Keep binary files for download\n  const newItem = {\n    json: response,\n    binary: {}\n  };\n  \n  if (item.binary.txtFile) {\n    newItem.binary.txtFile = item.binary.txtFile;\n  }\n  \n  if (item.binary.csvFile) {\n    newItem.binary.csvFile = item.binary.csvFile;\n  }\n  \n  results.push(newItem);\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        800
+      ],
+      "id": "ab13e1ea-0a79-4ca3-810e-c018b991e871",
+      "name": "Prepare Response1"
+    },
+    {
+      "parameters": {
+        "operation": "extractFromPdf"
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2032,
+        896
+      ],
+      "id": "3d8100c9-a7e8-445b-b932-f9cd10d00d6a",
+      "name": "Extract Text (Mixed)1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Normalize Binary (Text-based)": {
+      "main": [
+        [
+          {
+            "node": "Extract Text (Direct)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Binary (Mixed)": {
+      "main": [
+        [
+          {
+            "node": "Extract Text (Mixed)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Form Trigger1": {
+      "main": [
+        [
+          {
+            "node": "File Validation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "File Validation1": {
+      "main": [
+        [
+          {
+            "node": "PDF Type Detection1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PDF Type Detection1": {
+      "main": [
+        [
+          {
+            "node": "Route by PDF Type1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by PDF Type1": {
+      "main": [
+        [
+          {
+            "node": "Normalize Binary (Text-based)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Binary (Mixed)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OCR Required (Placeholder)1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Extract Text (Direct)1": {
+      "main": [
+        [
+          {
+            "node": "Text Cleanup & Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Cleanup & Analysis1": {
+      "main": [
+        [
+          {
+            "node": "Route by Output Format1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Output Format1": {
+      "main": [
+        [
+          {
+            "node": "Create TXT File1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create CSV File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create TXT File1": {
+      "main": [
+        [
+          {
+            "node": "Merge File Outputs1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create CSV File1": {
+      "main": [
+        [
+          {
+            "node": "Merge File Outputs1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge File Outputs1": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response1": {
+      "main": [
+        []
+      ]
+    },
+    "Extract Text (Mixed)1": {
+      "main": [
+        [
+          {
+            "node": "Text Cleanup & Analysis1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "00a92508-4304-4c3c-afbd-7e2589404c53",
+  "meta": {
+    "instanceId": "df84aabde100aa05593387178bc610115413e5c8d1c284452547dcf1bf949649"
+  },
+  "id": "gxLoQpHFKS1ZPmahaTN8_",
+  "tags": []
+}
