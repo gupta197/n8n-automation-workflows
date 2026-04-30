@@ -1,0 +1,478 @@
+{
+  "name": "CSV Contact to outreach Prompt Generation",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "e0415b95-6e7a-41f7-ac6b-ba3e2e4e84f1",
+      "name": "When clicking ‘Test workflow’"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a Salesforce research assistant helping me prepare for an outreach meeting. I will provide you with a company name and website URL. Your task is to **gather and present the information directly**, without any filler text or extra introductions.\n\nCompany: **{{ $json[\"Company Name\"] }}**\nWebsite: **{{ $json.Website }}**\n\n### 1. Company Overview\n\n* What does the company do?\n* Main products or services?\n* Industries of operation?\n* Headquarters and key locations?\n* Company size (employees, offices)?\n* Revenue or turnover (with fiscal year and currency if available)?\n* Recent news, achievements, partnerships, or expansions?\n\n### 2. Salesforce Usage\n\n* Is the company using Salesforce?\n* If yes, which Salesforce Clouds? (Sales, Service, Marketing, Experience, Health, etc.)\n* Known integrations or third-party Salesforce apps?\n* How do they use Salesforce (CRM, automation, analytics, engagement, etc.)?\n\n### 3. Salesforce Investment\n\n* Available data or estimates on Salesforce investment?\n* Scale of implementation (users, departments, transformation initiatives)?\n\n### 4. Salesforce Events Participation\n\n* Attendance at Salesforce events (Dreamforce, TrailblazerDX, World Tour, Agentforce, etc.)?\n* Any speakers, panelists, or sponsors from the company?\n* Social media mentions or blogs about these events?\n\n### 5. Sample First Outreach Email\n\n* Write a short, friendly, and professional first-touch email for someone at this company.\n* Focus on Salesforce usage or potential improvements.\n* Keep it warm and approachable, not sales-heavy.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        688,
+        48
+      ],
+      "id": "6b31eecb-886c-49c9-8375-59aa4d2b290b",
+      "name": "AI Agent1",
+      "executeOnce": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "26406e61-1193-492a-8179-1adf38625812",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\n/* return {\n  AIPrompt: $input.first().json.output,\n rawData:  $('Loop Over Items').first().json\n}\n*/\n\n// ============================================================\n// 🚀 n8n Code Node — Outreach Segregation\n// Handles: Email, LinkedIn, Intel, Flat CRM, Raw Contact Info\n// Works with both structured JSON and free-text AI responses\n// ============================================================\n\nreturn items.map(item => {\n  const raw = item.json;\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 1: Extract rawData contact fields\n  // Your input has rawData as a nested object inside item.json\n  // ─────────────────────────────────────────────\n  let contactData = {};\n  try {\n    const rd = raw.rawData ?? raw.raw_data ?? raw.contact ?? {};\n    contactData = typeof rd === \"string\" ? JSON.parse(rd) : (rd || {});\n  } catch (e) {\n    contactData = {};\n  }\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 2: Extract contact fields directly\n  // ─────────────────────────────────────────────\n  const companyName     = (contactData[\"Company Name\"]                 || \"\").trim() || $('Get The information').first().json['Company Name'];\n  const contactName     = (contactData[\"Name\"]                         || \"\").trim() || $('Get The information').first().json.Name;\n  const firstName       = contactName.split(\" \")[0] || $('Get The information').first().json.Name;\n  const emailAddress    = (contactData[\"Email Address\"]                || \"\").trim() || $('Get The information').first().json['Email Address'];\n  const linkedinContact = (contactData[\"LinkedIn Contact Profile URL\"] || \"\").trim() || $('Get The information').first().json['LinkedIn Contact Profile URL'];\n  const linkedinCompany = (contactData[\"LinkedIn Company Profile URL\"] || \"\").trim() || $('Get The information').first().json['LinkedIn Company Profile URL'];\n  const website         = (contactData[\"Website\"]                      || \"\").trim() || $('Get The information').first().json.Website;\n  const phone           = (contactData[\"Direct Phone Number\"]          || \"\").trim() || $('Get The information').first().json['Direct Phone Number'];\n  const revenue         = contactData[\"Revenue (in 000s USD)\"]          || $('Get The information').first().json['Revenue (in 000s USD)'];\n  const country         = (contactData[\"Company Country\"]              || \"\").trim() || $('Get The information').first().json['Company Country'];\n  const address         = (contactData[\"Full Address\"]                 || \"\").trim() || $('Get The information').first().json['Full Address'];\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 3: Extract AI Brief (free-text markdown)\n  // Your input: item.json.AIPrompt is the full markdown brief string\n  // ─────────────────────────────────────────────\n  let aiPromptText = \"\";\n  let aiOutput = {};\n\n  const aiRaw = raw.AIPrompt ?? raw.ai_response ?? raw.ai_output ?? raw.output ?? \"\";\n\n  if (typeof aiRaw === \"object\" && aiRaw !== null) {\n    aiOutput = aiRaw;\n  } else if (typeof aiRaw === \"string\") {\n    const trimmed = aiRaw.trim();\n    if (trimmed.startsWith(\"{\") || trimmed.startsWith(\"[\")) {\n      try { aiOutput = JSON.parse(trimmed); } catch (e) { aiOutput = {}; }\n    } else {\n      aiPromptText = trimmed; // markdown brief\n    }\n  }\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 4: Safe getter for structured JSON AI output\n  // ─────────────────────────────────────────────\n  const get = (obj, path, fallback = \"\") => {\n    const val = path.split('.').reduce((o, k) => (o != null ? o[k] : undefined), obj);\n    if (val === undefined || val === null || val === \"\") return fallback;\n    return val;\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 5: Extract markdown sections from free-text brief\n  // Handles ## 1. Company Overview, ## 2. Salesforce Usage, etc.\n  // ─────────────────────────────────────────────\n  const extractSection = (text, pattern) => {\n    if (!text) return \"\";\n    const regex = new RegExp(\n      `##[^\\\\n]*${pattern}[^\\\\n]*\\\\n([\\\\s\\\\S]*?)(?=\\\\n##|$)`,\n      \"i\"\n    );\n    const match = text.match(regex);\n    return match ? match[1]?.trim() : \"\";\n  };\n\n  const overviewSection    = extractSection(aiPromptText, \"Company Overview\");\n  const sfUsageSection     = extractSection(aiPromptText, \"Salesforce Usage\");\n  const sfInvestSection    = extractSection(aiPromptText, \"Salesforce Investment\");\n  const sfEventsSection    = extractSection(aiPromptText, \"Salesforce Events\");\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 6: Extract email from the brief\n  // Pulls Subject + full body from \"## 5. Sample First Outreach Email\"\n  // ─────────────────────────────────────────────\n  const emailSection = extractSection(aiPromptText, \"Sample First Outreach Email|Outreach Email\");\n\n  let extractedSubject = \"\";\n  let extractedBody    = \"\";\n\n  if (emailSection) {\n    // Subject line: **Subject:** Something\n    const subjMatch = emailSection.match(/\\*\\*Subject[:\\*]*\\*\\*\\s*(.+)/i) ||\n                      emailSection.match(/Subject:\\s*(.+)/i);\n    if (subjMatch) extractedSubject = subjMatch[1].trim();\n\n    // Body: everything from \"Hi\" onwards\n    const bodyMatch = emailSection.match(/(Hi[\\s\\S]+)/i);\n    if (bodyMatch) extractedBody = bodyMatch[1].trim();\n  }\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 7: Extract intel bullets from the brief\n  // ─────────────────────────────────────────────\n  const extractBullets = (text) => {\n    if (!text) return [];\n    return text\n      .split(\"\\n\")\n      .filter(l => l.trim().startsWith(\"-\") || l.trim().startsWith(\"•\"))\n      .map(l => l.replace(/^[-•]\\s*/, \"\").trim())\n      .filter(Boolean);\n  };\n\n  // Extract Salesforce usage details as hooks/bullets\n  const sfUsageBullets     = extractBullets(sfUsageSection);\n  const sfInvestBullets    = extractBullets(sfInvestSection);\n\n  // Infer ICP score from brief content\n  const usingSalesforce    = /yes.*salesforce|salesforce.*yes/i.test(sfUsageSection);\n  const hasEnterpriseScale = /enterprise|500|800|100\\+|200\\+/i.test(overviewSection + sfInvestSection);\n  const inferredIcpScore   = usingSalesforce ? (hasEnterpriseScale ? 8 : 6) : 4;\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 8: Build Company Research\n  // ─────────────────────────────────────────────\n  const company_research = {\n    overview:              get(aiOutput, \"company_research.overview\")              || overviewSection,\n    salesforce_usage:      get(aiOutput, \"company_research.salesforce_usage\")      || sfUsageSection,\n    salesforce_investment: get(aiOutput, \"company_research.salesforce_investment\") || sfInvestSection,\n    events_participation:  get(aiOutput, \"company_research.events_participation\")  || sfEventsSection,\n    full_brief:            aiPromptText || get(aiOutput, \"full_brief\", \"\")\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 9: Build Email Outreach\n  // ─────────────────────────────────────────────\n  // Replace [First Name] placeholder with actual first name\n  const personalizeBody = (body) => {\n    if (!body) return \"\";\n    return body\n      .replace(/\\[First Name\\]/gi, firstName)\n      .replace(/\\[Your Name\\]/gi, \"[Your Name]\"); // keep sender placeholder\n  };\n\n  const email_reachout = {\n    subject_line:      get(aiOutput, \"email_template.subject_line\")      || extractedSubject  || `Quick idea for ${companyName || \"your team\"}`,\n    preview_text:      get(aiOutput, \"email_template.preview_text\")      || \"\",\n    opening_line:      get(aiOutput, \"email_template.opening_line\")      || \"\",\n    value_proposition: get(aiOutput, \"email_template.value_proposition\") || \"\",\n    social_proof:      get(aiOutput, \"email_template.social_proof\")      || \"\",\n    call_to_action:    get(aiOutput, \"email_template.call_to_action\")    || \"Would you be open to a brief conversation?\",\n    full_email_body:   personalizeBody(\n                         get(aiOutput, \"email_template.full_email_body\") || extractedBody\n                       ) ||\n      `Hi ${firstName},\\n\\nI came across ${companyName} and wanted to reach out.\\n\\nWould you be open to a brief conversation?\\n\\nBest regards,\\n[Your Name]`\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 10: Build LinkedIn Outreach\n  // Generates a real, personalized connection note from the brief\n  // ─────────────────────────────────────────────\n\n  // Build a personalized LinkedIn note using brief content\n  let linkedinConnectionNote = get(aiOutput, \"linkedin_outreach.connection_request_note\", \"\");\n\n  if (!linkedinConnectionNote && companyName) {\n    // Use company context from brief to craft a real note\n    const sfContext = usingSalesforce\n      ? `I noticed ${companyName} uses Salesforce`\n      : `I came across ${companyName}`;\n\n    const productHint = /cadency|adra|fynapse/i.test(aiPromptText)\n      ? \" — especially the work on Cadency and Adra Fynapse\"\n      : \"\";\n\n    linkedinConnectionNote =\n      `Hi ${firstName}, ${sfContext}${productHint}. I work with B2B software teams on Salesforce optimization and thought it'd be great to connect. No pitch — just expanding my network in the fintech space.`;\n  }\n\n  let linkedinFollowUp1 = get(aiOutput, \"linkedin_outreach.follow_up_message_1\", \"\");\n  if (!linkedinFollowUp1 && companyName) {\n    linkedinFollowUp1 =\n      `Hi ${firstName}, thanks for connecting! I've been following ${companyName}'s work on financial close automation — really impressive what you've built with the Adra suite. I work with similar B2B software companies to streamline their Salesforce setup. Would you be open to a quick 15-min chat?`;\n  }\n\n  let linkedinFollowUp2 = get(aiOutput, \"linkedin_outreach.follow_up_message_2\", \"\");\n  if (!linkedinFollowUp2 && companyName) {\n    linkedinFollowUp2 =\n      `Hi ${firstName}, just circling back — I shared a note last week about Salesforce optimization for B2B software teams. Happy to send over a quick case study relevant to ${companyName}'s setup if that'd be useful. Either way, good to be connected!`;\n  }\n\n  const linkedin_reachout = {\n    connection_request_note: linkedinConnectionNote,\n    follow_up_message_1:     linkedinFollowUp1,\n    follow_up_message_2:     linkedinFollowUp2,\n    comment_hooks:           get(aiOutput, \"linkedin_outreach.comment_hooks\", [\n      `Interesting perspective on financial close automation — how are you thinking about AI's role here in 2025?`,\n      `The Adra Fynapse launch was impressive. What's been the biggest adoption challenge so far?`\n    ])\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 11: Build Intel Summary\n  // Inferred from brief when AI JSON isn't structured\n  // ─────────────────────────────────────────────\n  const intel_summary = {\n    icp_fit_score:         get(aiOutput, \"intel_summary.icp_fit_score\")          || inferredIcpScore,\n    icp_fit_reason:        get(aiOutput, \"intel_summary.icp_fit_reason\")          ||\n      (usingSalesforce\n        ? `${companyName} confirmed Salesforce user (Sales Cloud). Enterprise scale with 500-800 employees and complex B2B sales cycles — strong fit for Salesforce optimization services.`\n        : `No confirmed Salesforce usage found for ${companyName}.`),\n    top_3_hooks:           get(aiOutput, \"intel_summary.top_3_hooks\", [])         .length\n                             ? get(aiOutput, \"intel_summary.top_3_hooks\", [])\n                             : sfUsageBullets.slice(0, 3),\n    objections_to_expect:  get(aiOutput, \"intel_summary.objections_to_expect\", []).length\n                             ? get(aiOutput, \"intel_summary.objections_to_expect\", [])\n                             : [\n                               \"Already working with a Salesforce partner\",\n                               \"Limited budget / not a priority right now\",\n                               \"Happy with current Salesforce setup\"\n                             ],\n    best_outreach_channel: get(aiOutput, \"intel_summary.best_outreach_channel\")   || \"email\",\n    best_time_to_reach:    get(aiOutput, \"intel_summary.best_time_to_reach\")       || \"Tuesday–Thursday, 9–11am local time\",\n    competitor_angle:      get(aiOutput, \"intel_summary.competitor_angle\")         || \"\",\n    trigger_events:        get(aiOutput, \"intel_summary.trigger_events\", [])       .length\n                             ? get(aiOutput, \"intel_summary.trigger_events\", [])\n                             : [\n                               \"2023: Launched Adra Fynapse (AI-powered)\",\n                               \"ERP partnership expansions (SAP, Oracle, Microsoft)\",\n                               \"Gartner Market Guide recognition\"\n                             ]\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 12: Build SMS / WhatsApp\n  // ─────────────────────────────────────────────\n  const sms_reachout = {\n    message: get(aiOutput, \"sms_outreach.message\") ||\n      `Hi ${firstName}, this is [Your Name]. I help B2B software teams like ${companyName || \"yours\"} get more from Salesforce. Worth a 5-min chat?`\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 13: Build Call Script\n  // ─────────────────────────────────────────────\n  const call_script = {\n    opener:    get(aiOutput, \"call_script.opener\")    ||\n      `Hi ${firstName}, this is [Your Name] — I know this is out of the blue, did I catch you at a bad time?`,\n    pitch:     get(aiOutput, \"call_script.pitch\")     ||\n      `I work with B2B software companies like ${companyName} to optimize their Salesforce setup — things like pipeline visibility, CPQ, and sales-to-CS handoffs. I noticed ${companyName} is already using Salesforce and thought there might be a fit.`,\n    questions: get(aiOutput, \"call_script.questions\", []).length\n                 ? get(aiOutput, \"call_script.questions\", [])\n                 : [\n                   \"How many reps are currently in your Salesforce org?\",\n                   \"Are you happy with how your pipeline visibility looks today?\",\n                   \"Is CPQ or quoting something your team handles in Salesforce?\"\n                 ],\n    voicemail: get(aiOutput, \"call_script.voicemail\") ||\n      `Hi ${firstName}, this is [Your Name]. I had a quick thought for your team at ${companyName} around getting more from Salesforce — specifically around pipeline and CPQ. I'll shoot you a quick email, but feel free to call me back. Thanks!`\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 14: Flat output for CRM / Google Sheets\n  // ─────────────────────────────────────────────\n  const flat = {\n    // Contact\n    contact_name:        contactName,\n    company_name:        companyName,\n    email_address:       emailAddress,\n    phone:               phone,\n    linkedin_profile:    linkedinContact,\n    linkedin_company:    linkedinCompany,\n    website:             website,\n    revenue_usd_000s:    revenue,\n    country:             country,\n    address:             address,\n    // Email\n    email_subject:       email_reachout.subject_line,\n    email_body:          email_reachout.full_email_body,\n    email_cta:           email_reachout.call_to_action,\n    // LinkedIn\n    linkedin_note:       linkedin_reachout.connection_request_note,\n    linkedin_followup1:  linkedin_reachout.follow_up_message_1,\n    linkedin_followup2:  linkedin_reachout.follow_up_message_2,\n    // Intel\n    icp_score:           intel_summary.icp_fit_score,\n    icp_reason:          intel_summary.icp_fit_reason,\n    best_channel:        intel_summary.best_outreach_channel,\n    best_time:           intel_summary.best_time_to_reach,\n    top_hooks:           intel_summary.top_3_hooks.join(\" | \"),\n    trigger_events:      intel_summary.trigger_events.join(\" | \"),\n    // Call & SMS\n    voicemail:           call_script.voicemail,\n    sms_message:         sms_reachout.message\n  };\n\n  // ─────────────────────────────────────────────\n  // 🧩 STEP 15: Final output\n  // ─────────────────────────────────────────────\n  return {\n    json: {\n      contact_profile: {\n        name:              contactName,\n        first_name:        firstName,\n        email:             emailAddress,\n        phone:             phone,\n        linkedin:          linkedinContact,\n        linkedin_company:  linkedinCompany,\n        website:           website,\n        company:           companyName,\n        revenue_usd_000s:  revenue,\n        country:           country,\n        address:           address\n      },\n      company_research,\n      email_reachout,\n      linkedin_reachout,\n      intel_summary,\n      sms_reachout,\n      call_script,\n      flat,\n      _meta: {\n        processed_at:       new Date().toISOString(),\n        ai_source_type:     aiPromptText ? \"free_text_brief\" : (Object.keys(aiOutput).length ? \"structured_json\" : \"no_ai_data\"),\n        has_email:          !!email_reachout.full_email_body,\n        has_linkedin:       !!linkedin_reachout.connection_request_note,\n        has_intel:          !!intel_summary.icp_fit_reason,\n        contact_valid:      !!(emailAddress || linkedinContact),\n        salesforce_confirmed: usingSalesforce,\n        inferred_icp_score: inferredIcpScore\n      }\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        48
+      ],
+      "id": "d3f8d55f-88bd-4c3a-a4a4-aaaeb33af036",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1oA3ICl24S-qXkttFR6-svhAIzEXjH7HsZZQdPoI5pZM",
+          "mode": "list",
+          "cachedResultName": "N8N demo",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1oA3ICl24S-qXkttFR6-svhAIzEXjH7HsZZQdPoI5pZM/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1oA3ICl24S-qXkttFR6-svhAIzEXjH7HsZZQdPoI5pZM/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "bd8e65a1-d017-4072-bb11-d15f5960e9b6",
+      "name": "Get The information",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "WCBxQZUb9isjUg3A",
+          "name": "Own Google sheet"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1wOTkB6a4SH4qXZLa2oKN8VdPN3ooyKOiS8DsAegP1mY",
+          "mode": "list",
+          "cachedResultName": "N8N data Redefine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1wOTkB6a4SH4qXZLa2oKN8VdPN3ooyKOiS8DsAegP1mY/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1wOTkB6a4SH4qXZLa2oKN8VdPN3ooyKOiS8DsAegP1mY/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Company name": "={{ $('Code').item.json.contact_profile.company }}",
+            "Company website": "={{ $('Code').item.json.contact_profile.website }}",
+            "Company LinkedIn": "={{ $('Code').item.json.contact_profile.linkedin_company }}",
+            "Location": "={{ $('Code').item.json.contact_profile.address }}",
+            "Phone Number": "={{ $('Code').item.json.contact_profile.phone }}",
+            "AI Template": "=https://docs.google.com/document/d/{{ $json.documentId }}",
+            "Email": "={{ $('Code').item.json.contact_profile.email }}",
+            "Revenue": "={{ $('Code').item.json.contact_profile.revenue_usd_000s }}",
+            "Contact LinkedIn Profile": "={{ $('Code').item.json.contact_profile.linkedin }}",
+            "Prospect Name": "={{ $('Code').item.json.contact_profile.name }}",
+            "Techstack Salesforce": "={{ $('Code').item.json._meta.salesforce_confirmed }}",
+            "Email Follow up": "={{ $('Code').item.json.email_reachout.full_email_body }}",
+            "Email & Linkedin Requst Sent": "={{ $('Code').item.json.linkedin_reachout.connection_request_note }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Company name",
+              "displayName": "Company name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company website",
+              "displayName": "Company website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company LinkedIn",
+              "displayName": "Company LinkedIn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Techstack Salesforce",
+              "displayName": "Techstack Salesforce",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "TechStack Hubspot",
+              "displayName": "TechStack Hubspot",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Prospect Name",
+              "displayName": "Prospect Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Designation",
+              "displayName": "Designation",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Contact LinkedIn Profile",
+              "displayName": "Contact LinkedIn Profile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Revenue",
+              "displayName": "Revenue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email Follow up",
+              "displayName": "Email Follow up",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email & Linkedin Requst Sent",
+              "displayName": "Email & Linkedin Requst Sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Response via Emai\n",
+              "displayName": "Response via Emai\n",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Response via Linkedin Msg",
+              "displayName": "Response via Linkedin Msg",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Prospect Location",
+              "displayName": "Prospect Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Phone Number",
+              "displayName": "Phone Number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "AI Template",
+              "displayName": "AI Template",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1488,
+        48
+      ],
+      "id": "5a5b6cd9-c5a8-4843-b8f8-9e88a2bcc26c",
+      "name": "Update the content in the sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "WCBxQZUb9isjUg3A",
+          "name": "Own Google sheet"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentURL": "https://docs.google.com/document/d/1f96296EaEx_0FL_WnP_11GbhYNCUApMXXCaGZVCulCc/edit?tab=t.0",
+        "actionsUi": {
+          "actionFields": [
+            {
+              "action": "insert",
+              "text": "={{ $('AI Agent1').item.json.output }} \n\nContact Information\n\n{{ JSON.stringify($json.contact_profile) }}\n\nCompany Research\n{{ JSON.stringify($json.company_research) }}\n\nEmail Reachout : {{ JSON.stringify( $json.email_reachout) }}\nLinkedIn rechout : {{ JSON.stringify($json.linkedin_reachout) }}\nSMS Reachout :{{ JSON.stringify($json.sms_reachout) }}\n\nIntel Summary: {{ JSON.stringify($json.intel_summary) }}\n\nCall Script:- {{ JSON.stringify($json.call_script) }}\n\nFlat:- {{ JSON.stringify($json.flat) }}\n\nCall script : {{ JSON.stringify($json.call_script) }}\n\n---------------------------------------------------- THE END -----------------------------------------------------\n"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.googleDocs",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        48
+      ],
+      "id": "7ff3e40c-ace9-4d97-925f-9fd93f22a88a",
+      "name": "Add the Response",
+      "credentials": {
+        "googleDocsOAuth2Api": {
+          "id": "6ktget5yq4qEC3o7",
+          "name": "Own Google Docs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-5-20250929",
+          "cachedResultName": "Claude Sonnet 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        688,
+        240
+      ],
+      "id": "c606ff22-b48f-40d4-b620-7d6977d7201e",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "0FBVVWuL7HfObhYk",
+          "name": "Claude 6 VTNetzwelt"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Test workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get The information",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Add the Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get The information": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update the content in the sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add the Response": {
+      "main": [
+        [
+          {
+            "node": "Update the content in the sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "69bc16e9-fffa-4f20-89dd-7ec3c1cb669d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a2e9a43eb6025464d31e78bdef08221e75ab17af2952441bf3c6d21615117c50"
+  },
+  "id": "tzEx0t2sek3gqHmp",
+  "tags": []
+}
