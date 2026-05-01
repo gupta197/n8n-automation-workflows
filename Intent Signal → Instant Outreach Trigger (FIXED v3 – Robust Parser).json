@@ -1,0 +1,754 @@
+{
+  "name": "Intent Signal → Instant Outreach Trigger (FIXED v3 – Robust Parser)",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.zoominfo.com/gtm/data/v1/intent/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/vnd.api+json"
+            },
+            {
+              "name": "authorization",
+              "value": "=Bearer {{ $json.BearerToken }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/vnd.api+json",
+        "body": "{\n  \"data\": {\n    \"type\": \"IntentSearch\",\n    \"attributes\": {\n      \"topics\": [\n        \"Salesforce Sales Cloud\",\n        \"Salesforce Marketing Cloud\"\n      ],\n      \"signalScoreMax\": 100,\n      \"signalScoreMin\": 60\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "f7ab7de8-011d-4382-91b5-ab7605f0d8b7",
+      "name": "ZoomInfo – Pull Intent Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2256,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "YaWolZMCciZCDSam",
+          "mode": "list",
+          "cachedResultName": "AccountCred",
+          "cachedResultUrl": "/projects/u81K9bpdLFTS5Z5Z/datatables/YaWolZMCciZCDSam"
+        }
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2448,
+        352
+      ],
+      "id": "91d6d7cd-7211-4900-a6ee-114c8ec1e220",
+      "name": "Get row(s)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────\n// FIX 1: ZoomInfo returns { data: \"<JSON string>\" }\n// We must JSON.parse the .data field before accessing .data[]\n// FIX 2: Actual schema is attributes.company.name, attributes.signalScore\n// NOT item.companyName / item.intentScore (old generic schema was wrong)\n// FIX 3: HIGH_PRIORITY_TOPICS updated to match real ZoomInfo topic names\n// FIX 4: recommendedContacts now captured for personalized outreach\n// ─────────────────────────────────────────────────────────────\n\nconst rawInput = $input.first().json;\n\n// Step 1 – parse the stringified JSON ZoomInfo wraps results in\nlet parsed;\ntry {\n  parsed = typeof rawInput.data === 'string' ? JSON.parse(rawInput.data) : rawInput.data;\n} catch(e) {\n  return [{ json: { error: 'Failed to parse ZoomInfo response', raw: rawInput } }];\n}\n\n// Step 2 – extract the data array\nconst results = parsed?.data || [];\n\nif (!Array.isArray(results) || results.length === 0) {\n  return [{ json: { error: 'No intent results', totalResults: parsed?.meta?.totalResults || 0 } }];\n}\n\n// Step 3 – topic names exactly as ZoomInfo returns them (case-insensitive match)\nconst HIGH_PRIORITY_TOPICS = [\n  'salesforce sales cloud',\n  'salesforce marketing cloud',\n  'salesforce implementation',\n  'salesforce service cloud',\n  'crm implementation',\n  'crm migration',\n  'ai automation',\n  'sales intelligence',\n  'revenue operations',\n  'marketing automation'\n];\n\n// Step 4 – map each intent record using the REAL ZoomInfo schema\nconst normalized = results.map(item => {\n  const attr = item.attributes || {};\n  const company = attr.company || {};\n  const topicName = attr.topic || 'Unknown';\n  const contacts = attr.recommendedContacts || [];\n\n  // Build top contact for personalization\n  const topContact = contacts[0] || {};\n  const allContactNames = contacts\n    .slice(0, 3)\n    .map(c => `${c.firstName} ${c.lastName} (${c.jobTitle || 'Unknown Title'})`)\n    .join(' | ');\n\n  return {\n    // Company\n    companyId: company.id,\n    companyName: company.name || 'Unknown',\n    domain: company.website || '',\n    hasOtherTopics: company.hasOtherTopicConsumption || false,\n\n    // Intent signal\n    intentTopic: topicName,\n    intentScore: attr.signalScore || 0,\n    audienceStrength: attr.audienceStrength || 'Unknown',  // A/B/C/D/F grade\n    spikesInDateRange: attr.spikesInDateRange || 1,\n    signalDate: attr.signalDate || new Date().toISOString(),\n    recordId: item.id,\n\n    // Contacts\n    topContactFirstName: topContact.firstName || '',\n    topContactLastName: topContact.lastName || '',\n    topContactTitle: topContact.jobTitle || '',\n    topContactId: topContact.id || '',\n    allContacts: allContactNames,\n    contactCount: contacts.length,\n\n    // Scoring helper for filter node\n    isHighPriorityTopic: HIGH_PRIORITY_TOPICS.includes(topicName.toLowerCase()),\n    overallIntentScore: attr.signalScore || 0,\n\n    // Legacy field kept for compatibility with downstream parse node\n    topTopic: { topic: topicName, score: attr.signalScore || 0 },\n    intentTopics: [{\n      topic: topicName,\n      score: attr.signalScore || 0,\n      isHighPriority: HIGH_PRIORITY_TOPICS.includes(topicName.toLowerCase())\n    }],\n\n    pulledAt: new Date().toISOString()\n  };\n});\n\nreturn normalized.map(n => ({ json: n }));\n"
+      },
+      "id": "ced7c4f2-9d24-4c01-998a-bc2e7a278f1c",
+      "name": "Normalize Intent Signals1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -1552,
+        352
+      ],
+      "id": "6892cce5-6a5b-4376-a6f6-80e37c4e72c0",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "maxItems": 3,
+        "keep": "lastItems"
+      },
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        -1776,
+        352
+      ],
+      "id": "5afb3742-0763-4e28-a703-466ea56471ae",
+      "name": "Limit"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────────────────\n// ROBUST AI AGENT OUTPUT PARSER  v3\n// Handles ALL known output formats from Claude / LLM agents:\n//   1. ```json\\n{...}\\n```   ← actual observed format (markdown + lang tag)\n//   2. ```\\n{...}\\n```       ← markdown without lang tag\n//   3. {..pure JSON..}       ← clean ideal output\n//   4. Preamble text\\n{...}  ← explanation before JSON\n//   5. {...}\\n\\nNote: ...    ← JSON + trailing explanation text\n//   6. follow_up_days as string \"3\" or \"3 days\" instead of integer\n//   7. urgency_level as \"HIGH\" (uppercase) instead of \"high\"\n//   8. Partial/malformed JSON → graceful fallback with real contact data\n// ─────────────────────────────────────────────────────────────────────────────\n\nconst rawOutput = $input.first().json.output\n  || $input.first().json.text \n  || $input.first().json.content \n  || '';\n\nconst intentData = $('Loop Over Items').first().json;\nconsole.log('intent Data', intentData);\n\n// ── STEP 1: Strip markdown code fences (```json ... ``` or ``` ... ```) ──────\nfunction stripCodeFences(str) {\n  // Remove opening fence: ```json or ``` (with optional whitespace/newline)\n  let cleaned = str.replace(/^```(?:json)?\\s*/i, '');\n  // Remove closing fence\n  cleaned = cleaned.replace(/\\s*```\\s*$/, '');\n  return cleaned.trim();\n}\n\n// ── STEP 2: Extract the JSON object from arbitrary surrounding text ───────────\nfunction extractJSON(str) {\n  // Find the first { and last } — handles preamble and trailing text\n  const start = str.indexOf('{');\n  const end   = str.lastIndexOf('}');\n  if (start === -1 || end === -1 || end < start) return null;\n  return str.slice(start, end + 1).trim();\n}\n\n// ── STEP 3: Sanitize field-level values after parsing ────────────────────────\nfunction sanitize(obj, intentData) {\n  // follow_up_days: ensure integer (handles \"3\", \"3 days\", 3.5, null)\n  const rawDays = obj.follow_up_days;\n  const parsedDays = parseInt(String(rawDays).replace(/\\D.*$/, ''), 10);\n  obj.follow_up_days = isNaN(parsedDays) ? 3 : Math.max(1, Math.min(parsedDays, 30));\n\n  // urgency_level: normalise to lowercase, validate allowed values\n  const rawUrgency = String(obj.urgency_level || '').toLowerCase().trim();\n  obj.urgency_level = ['high', 'medium', 'low'].includes(rawUrgency) ? rawUrgency : 'medium';\n\n  // best_channel: normalise to lowercase, validate\n  const rawChannel = String(obj.best_channel || '').toLowerCase().trim();\n  obj.best_channel = ['email', 'linkedin', 'phone'].includes(rawChannel) ? rawChannel : 'email';\n\n  // subject_line: truncate to 60 chars if LLM ignored the limit\n  if (obj.subject_line && obj.subject_line.length > 60) {\n    obj.subject_line = obj.subject_line.slice(0, 57).trim() + '...';\n  }\n\n  // Ensure all required string fields exist and are non-empty\n  const requiredStrings = [\n    'subject_line', 'why_now_message', 'full_email_body',\n    'linkedin_message', 'call_opener', 'internal_rep_note'\n  ];\n  requiredStrings.forEach(key => {\n    if (!obj[key] || typeof obj[key] !== 'string' || obj[key].trim() === '') {\n      obj[key] = `[${key} not generated — review manually]`;\n    }\n  });\n\n  return obj;\n}\n\n// ── STEP 4: Fallback object built from real intent data ───────────────────────\nfunction buildFallback(intentData) {\n  const isSalesforce = (intentData.intentTopic || '').toLowerCase().includes('salesforce');\n  const topicAngle   = isSalesforce ? 'CRM-driven sales operations' : 'revenue operations';\n  const fn = intentData.topContactFirstName || 'there';\n  const company = intentData.companyName || 'your organization';\n\n  return {\n    subject_line: `${fn}, a thought on ${topicAngle} at ${company}`.slice(0, 60),\n    why_now_message: `Hi ${fn}, I wanted to reach out given what I've been seeing from teams scaling their ${topicAngle} — the timing felt relevant for ${company}. We've been working with several organizations in your space navigating exactly this.`,\n    full_email_body: `Hi ${fn},\\n\\nI work with ${topicAngle} teams and wanted to reach out at the right moment.\\n\\nWould a quick 15-minute call be valuable this week?\\n\\nBest`,\n    linkedin_message: `Hi ${fn} — I work with ${topicAngle} leaders and thought connecting could be timely for ${company}. Would love to share what we've seen work.`,\n    call_opener: `Hi ${fn}, I work with teams focused on ${topicAngle} and wanted to reach out now because the challenges I'm hearing from your space feel highly relevant to ${company}.`,\n    internal_rep_note: `${company} scored ${intentData.intentScore}/100 on \"${intentData.intentTopic}\" (Strength: ${intentData.audienceStrength}). Lead with ${topicAngle} angle. Primary: ${fn} ${intentData.topContactLastName || ''} (${intentData.topContactTitle || 'Unknown'}).`,\n    urgency_level: (intentData.intentScore || 0) >= 85 ? 'high' : 'medium',\n    best_channel: 'email',\n    follow_up_days: 3\n  };\n}\n\n// ── MAIN PARSE LOGIC ──────────────────────────────────────────────────────────\nlet outreach;\nlet parseMethod = 'unknown';\nlet parseError  = null;\n\ntry {\n  // Attempt 1: strip fences → extract JSON object → parse\n  const stripped   = stripCodeFences(rawOutput);\n  const jsonString = extractJSON(stripped) || extractJSON(rawOutput);\n\n  if (jsonString) {\n    outreach = JSON.parse(jsonString);\n    parseMethod = 'extracted_json';\n  } else {\n    // Attempt 2: maybe the whole string is valid JSON\n    outreach = JSON.parse(rawOutput.trim());\n    parseMethod = 'direct_parse';\n  }\n  outreach = sanitize(outreach, intentData);\n\n} catch(e) {\n  parseError  = e.message;\n  parseMethod = 'fallback';\n  outreach    = sanitize(buildFallback(intentData), intentData);\n}\n\n// ── BUILD FINAL OUTPUT ────────────────────────────────────────────────────────\nconst taskDue = new Date(\n  Date.now() + (outreach.follow_up_days * 24 * 3600000)\n).toISOString();\n\nreturn {\n  json: {\n    // Intent data (spread first so outreach fields can override if needed)\n    ...intentData,\n    // Outreach fields\n    ...outreach,\n    // Metadata\n    generatedAt:  new Date().toISOString(),\n    taskTitle:    `Intent Alert [${intentData.audienceStrength || '?'}]: ${intentData.companyName} – ${intentData.intentTopic}`,\n    taskDue,\n    // Debug fields (visible in n8n execution log, harmless in Airtable)\n    _parseMethod: parseMethod,\n    _parseError:  parseError || null,\n    _rawLength:   rawOutput.length\n  }\n};\n"
+      },
+      "id": "a8e3ae3a-110a-48b5-b87a-18c4bc081c4f",
+      "name": "Parse + Merge Outreach2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -960,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1WqUFCVdnJqVBrohQN8i5HdEKpzVwZCLqx1it3LRo4s8",
+          "mode": "list",
+          "cachedResultName": "intentData For Sales",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WqUFCVdnJqVBrohQN8i5HdEKpzVwZCLqx1it3LRo4s8/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1WqUFCVdnJqVBrohQN8i5HdEKpzVwZCLqx1it3LRo4s8/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "companyId",
+              "displayName": "companyId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "companyName",
+              "displayName": "companyName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "domain",
+              "displayName": "domain",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "hasOtherTopics",
+              "displayName": "hasOtherTopics",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "intentTopic",
+              "displayName": "intentTopic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "intentScore",
+              "displayName": "intentScore",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "audienceStrength",
+              "displayName": "audienceStrength",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "spikesInDateRange",
+              "displayName": "spikesInDateRange",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "signalDate",
+              "displayName": "signalDate",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "recordId",
+              "displayName": "recordId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topContactFirstName",
+              "displayName": "topContactFirstName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topContactLastName",
+              "displayName": "topContactLastName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topContactTitle",
+              "displayName": "topContactTitle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topContactId",
+              "displayName": "topContactId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "allContacts",
+              "displayName": "allContacts",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "contactCount",
+              "displayName": "contactCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "isHighPriorityTopic",
+              "displayName": "isHighPriorityTopic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "overallIntentScore",
+              "displayName": "overallIntentScore",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topTopic",
+              "displayName": "topTopic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "intentTopics",
+              "displayName": "intentTopics",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "pulledAt",
+              "displayName": "pulledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "subject_line",
+              "displayName": "subject_line",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "why_now_message",
+              "displayName": "why_now_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "full_email_body",
+              "displayName": "full_email_body",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "linkedin_message",
+              "displayName": "linkedin_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "call_opener",
+              "displayName": "call_opener",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "internal_rep_note",
+              "displayName": "internal_rep_note",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "urgency_level",
+              "displayName": "urgency_level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "best_channel",
+              "displayName": "best_channel",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "follow_up_days",
+              "displayName": "follow_up_days",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "generatedAt",
+              "displayName": "generatedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "taskTitle",
+              "displayName": "taskTitle",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "taskDue",
+              "displayName": "taskDue",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_parseMethod",
+              "displayName": "_parseMethod",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_parseError",
+              "displayName": "_parseError",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "_rawLength",
+              "displayName": "_rawLength",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -752,
+        352
+      ],
+      "id": "60f8d464-6fcd-45d0-ad50-1e1e8b04bebc",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "WCBxQZUb9isjUg3A",
+          "name": "Own Google sheet"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Fetch Intent From Zoominfo\nWe have preconfigure the setting of zoominfo\n",
+        "height": 448,
+        "width": 688
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2768,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "ece531bd-c6a8-4483-898a-6b9fa4217be6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Cleanup Data\nclean data for AI",
+        "height": 448,
+        "width": 208,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -2064,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "633abeb1-b1b7-46c3-9476-0148af4e99c8",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## LImit\nLImit the record for loop\n",
+        "height": 448,
+        "width": 224,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1840,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "0496a39e-a85c-4d3b-bc0b-8818c9af7064",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## Agent Use for Outreach messages and email\nCreating email and outreach message using AI, Also prioritize the lead",
+        "height": 448,
+        "width": 1072,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1600,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "a1fab076-da43-4c26-978d-09bd05c51afc",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-sonnet-4-6",
+          "mode": "list",
+          "cachedResultName": "Claude Sonnet 4.6"
+        },
+        "options": {}
+      },
+      "id": "3abee851-8d02-4fa3-ae24-9dbc4c2bfbc2",
+      "name": "Claude – Generate Outreach",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -1296,
+        528
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "0FBVVWuL7HfObhYk",
+          "name": "Claude 6 VTNetzwelt"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an elite B2B sales strategist writing highly personalized outreach for a SaaS company. A target account is showing strong buying intent signals RIGHT NOW.\n\n## Account Intelligence\n- Company: {{ $json.companyName }}\n- Domain: {{ $json.domain }}\n- Intent Topic (active research): {{ $json.intentTopic }}\n- Intent Score: {{ $json.intentScore }}/100\n- Audience Strength: {{ $json.audienceStrength }} (A=best, F=worst — indicates data quality & company fit)\n- Signal Spikes This Period: {{ $json.spikesInDateRange }}\n- Also researching other topics: {{ $json.hasOtherTopics }}\n\n## Key Contacts at This Company\n- Primary contact: {{ $json.topContactFirstName }} {{ $json.topContactLastName }}, {{ $json.topContactTitle }}\n- Other contacts: {{ $json.allContacts }}\n- Total contacts identified: {{ $json.contactCount }}\n\n## Your Task\nGenerate a highly personalized outreach package addressed to {{ $json.topContactFirstName }}. Return ONLY valid JSON — no markdown, no explanation, no code fences:\n\n{\n  \"subject_line\": \"<email subject max 60 chars, reference their role or company context>\",\n  \"why_now_message\": \"<2-3 sentence email opening that references the SPECIFIC intent topic naturally — creates a 'perfect timing' feeling. NEVER mention 'intent data', 'research signals', or that you saw their activity>\",\n  \"full_email_body\": \"<complete personalized email 120-180 words, addressed to the contact by first name, references their industry pain point tied to the intent topic, includes ONE specific insight or stat, ends with a soft CTA for a 15-min call>\",\n  \"linkedin_message\": \"<300 char max LinkedIn connection request warm and timely, references their title>\",\n  \"call_opener\": \"<2-sentence cold call opener that references why you're calling this specific person now>\",\n  \"internal_rep_note\": \"<2-sentence briefing explaining WHY this company is hot right now, what angle to use, and who to contact first>\",\n  \"urgency_level\": \"<high|medium>\",\n  \"best_channel\": \"<email|linkedin|phone>\",\n  \"follow_up_days\": <integer days before follow-up>\n}\n\nRules:\n- Address the contact by first name in all outreach\n- Reference the intent topic INDIRECTLY (e.g. if topic is 'Salesforce Sales Cloud', say 'scaling your CRM-driven sales process')\n- Sound like a human who did research, not an AI\n- Be concise and value-first\n- Return ONLY valid JSON",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -1296,
+        352
+      ],
+      "id": "f52f7ea7-b2c2-488e-89e2-d38dcba5ab7e",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2640,
+        352
+      ],
+      "id": "ff4d8a40-c6df-4633-9cc2-2909813f0817",
+      "name": "When clicking ‘Execute workflow’"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "ZoomInfo – Pull Intent Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Intent Signals1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s)": {
+      "main": [
+        [
+          {
+            "node": "ZoomInfo – Pull Intent Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Intent Signals1": {
+      "main": [
+        [
+          {
+            "node": "Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limit": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse + Merge Outreach2": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude – Generate Outreach": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse + Merge Outreach2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "cbcbe561-d876-4897-b5e2-df77604bb609",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a2e9a43eb6025464d31e78bdef08221e75ab17af2952441bf3c6d21615117c50"
+  },
+  "id": "ixeVyN29ektjmrzw",
+  "tags": []
+}
